@@ -55,9 +55,17 @@ funciones pueden ir en el env.
    (cons '- -)
    (cons '* *)
    (cons '/ /)
+   (cons 'and (λ (a b) (and a b))) ;usamos lambda por que al intentar hacer esto:
+   ;(cons 'and and) el and no era un procedure, por lo que decidimos hacer nuestra propia procedura
+   ; Los lenguajes com o python permiten que el usuario pueda escribir tanto and como &&, por lo que
+   ; decidimos permitir que el usuario pueda escribir cualquiera de las dos opciones para todos
+   ; los casos de operaciones binarias
    (cons '&& (λ (a b) (and a b)))
+   (cons 'or (λ (a b) (or a b)))
    (cons '|| (λ (a b) (or a b)))
+   (cons 'not (λ (a) (not a)))
    (cons '! (λ (a) (not a)))
+   (cons 'xor (λ (a b) (xor a b)))
    (cons '!|| (λ (a b) (xor a b)))
    ))
 
