@@ -35,7 +35,9 @@ FAE
 --> funciones como valores, funciones de primera clase, tiene todos los derechos de los valores
 3 retornado, usado como argumento, evaluar, almacenarlo
 --> las funciones pueden definirse como cualquier valor, no necesito fundefs.
-funciones pueden ir en el env. 
+funciones pueden ir en el env.
+
+Hola
 |#
 
 
