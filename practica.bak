@@ -42,24 +42,13 @@ funciones pueden ir en el env.
 (deftype Expr
   [num n]
   [bool b]
-  [prim op args]
+  [add l r]
+  [sub l r]
   [id x]
   [with x e b]
   [fun param body]
   [app fun-name expr]
   )
-
-(define primitives
-  (list
-   (cons '+ +)
-   (cons '- -)
-   (cons '* *)
-   (cons '/ /)
-   (cons '&& (λ (a b) (and a b)))
-   (cons '|| (λ (a b) (or a b)))
-   (cons '! (λ (a) (not a)))
-   (cons '!|| (λ (a b) (xor a b)))
-   ))
 
 (deftype Env
   (mtEnv)
@@ -84,17 +73,18 @@ funciones pueden ir en el env.
     [(? number?) (num src)] ; si pasa un filtro
     [(? boolean?) (bool src)]
     [(? symbol?) (id src)]
+    [(list '+ s1 s2) (add (parse s1) (parse s2))]
+    [(list '- s1 s2) (sub (parse s1) (parse s2))]
     [(list 'with (list x e) b) (with x (parse e) (parse b))]
     [(list 'fun (list x) b) (fun x (parse b))]
     [(list fname arg) (app (parse fname) (parse arg))]
-    [(cons op args) (prim op (map parse args))] ; (num 1) (num 2) (num 3) (num 4)
     )
   )
 
 ; Como puedo representar a una funcion como valor? 
 
 (deftype Val
-  (valV v)
+  (numV n)
   (boolV b)
   (closureV arg body env); fun + env
   )
@@ -103,10 +93,11 @@ funciones pueden ir en el env.
 ; evaluates an arithmetic expression
 (define (interp expr env)
   (match expr
-    [(num n) (valV n)]
-    [(bool b) (valV b)]
+    [(num n) (numV n)]
+    [(bool b) (boolV b)]
     [(id x) (env-lookup x env)]
-    [(prim op args) (prim-ops op (map (λ (a) (interp a env)) args))]
+    [(add l r) (numV+ (interp l env) (interp r env))]
+    [(sub l r) (numV- (interp l env) (interp r env))]
     [(fun x b) (closureV x b env)]
     [(with x ne b)
      (interp b (extend-env x (interp ne env) env))]
@@ -117,17 +108,18 @@ funciones pueden ir en el env.
     )
   )
 
-(define (prim-ops op args) ; ((valV 1) (valV 2) (valV 3) (valV 4))
-  (let ([vals (map (λ (val) (valV-v val)) args)]) ; (1 2 3 4)
-    (valV (apply (cdr (assq op primitives)) vals)) ; 10 -> (+ 1 2 3 4)
-  )) ; (valV 10)
+; funciones auxiliares
+(define (numV+ n1 n2)
+  (numV (+ (numV-n n1) (numV-n n2))))
 
+(define (numV- n1 n2)
+  (numV (- (numV-n n1) (numV-n n2))))
 
 ; run: Src list[Fundefs]? -> Val
 (define (run prog)
   (let ([res (interp (parse prog) empty-env)])
     (match res
-      [(valV n) n]
+      [(numV n) n]
       [(boolV b) b ]
       [(closureV x b env) res]
       )
@@ -137,9 +129,7 @@ funciones pueden ir en el env.
 (test (run '{+ {- 5 2} 1}) 4)
 (test/exn (run 'x) "free identifier")
 
-
-(run '{fun {x} {+ x 1}}) ;este da error
-
+(run '{fun {x} {+ x 1}})
 (run '{{fun {x} {+ x 1}} 2})
 (run '{with {foo {fun {x} {+ x 1}}} foo})
 (run '{with {foo {fun {x} {+ x 1}}} {foo 2}})
@@ -154,6 +144,7 @@ funciones pueden ir en el env.
 
 (run '{with {addN {fun {n} {fun {m} {+ n m}}}}
             {addN 100000}})
+
 
 
 
