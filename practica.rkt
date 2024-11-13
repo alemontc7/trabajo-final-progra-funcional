@@ -49,6 +49,7 @@ Hola
   [id x]
   [with x e b]
   [fun param body]
+  [if-tf c t f]                         ; (if-tf <F1WAE> <F1WAE> <F1WAE>)
   [app fun-name expr]
   )
 
@@ -71,7 +72,8 @@ Hola
    (cons 'xor (λ (a b) (xor a b)))
    (cons '!|| (λ (a b) (xor a b)))
    (cons 'strApp string-append)
-   (cons 'strLen string-length)
+   ;(cons 'strLen (λ(x) (string-length x)))
+   (cons 'strAt (λ(string index) (string-ref string index)))
    (cons 'str=? string=?)
    ))
 
@@ -102,6 +104,8 @@ Hola
     [(list 'with (list x e) b) (with x (parse e) (parse b))]
     [(list 'fun (list x) b) (fun x (parse b))]
     [(list fname arg) (app (parse fname) (parse arg))]
+    [(list 'if-tf c t f) (if-tf (parse c) (parse t) (parse f))] ;ESTE ES IGUAL AL PRIM OP ARGS EN CUANDO A ARGS
+    ;YA QUE C T y F son args
     [(cons op args) (prim op (map parse args))] ; (num 1) (num 2) (num 3) (num 4)
     )
   )
@@ -127,6 +131,9 @@ Hola
     [(fun x b) (closureV x b env)]
     [(with x ne b)
      (interp b (extend-env x (interp ne env) env))]
+    [(if-tf c t f) (if (valV (interp c env))
+                         (interp t env)
+                         (interp f env))]
     [(app f e)
      (def (closureV arg body fenv) (interp f env))
      (interp body (extend-env arg (interp e env) fenv))
@@ -156,7 +163,7 @@ Hola
 (test/exn (run 'x) "free identifier")
 
 
-(run '{fun {x} {+ x 1}}) ;este da error
+(run '{fun {x} {+ x 1}})
 
 (run '{{fun {x} {+ x 1}} 2})
 (run '{with {foo {fun {x} {+ x 1}}} foo})
