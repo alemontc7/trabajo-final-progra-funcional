@@ -44,6 +44,7 @@ Hola
 (deftype Expr
   [num n]
   [bool b]
+  [String s]
   [prim op args]
   [id x]
   [with x e b]
@@ -69,6 +70,9 @@ Hola
    (cons '! (λ (a) (not a)))
    (cons 'xor (λ (a b) (xor a b)))
    (cons '!|| (λ (a b) (xor a b)))
+   (cons 'strApp string-append)
+   (cons 'strLen string-length)
+   (cons 'str=? string=?)
    ))
 
 (deftype Env
@@ -93,6 +97,7 @@ Hola
   (match src
     [(? number?) (num src)] ; si pasa un filtro
     [(? boolean?) (bool src)]
+    [(? string?) (String src)]
     [(? symbol?) (id src)]
     [(list 'with (list x e) b) (with x (parse e) (parse b))]
     [(list 'fun (list x) b) (fun x (parse b))]
@@ -106,6 +111,7 @@ Hola
 (deftype Val
   (valV v)
   (boolV b)
+  (StringV s)
   (closureV arg body env); fun + env
   )
 
@@ -115,6 +121,7 @@ Hola
   (match expr
     [(num n) (valV n)]
     [(bool b) (valV b)]
+    [(String s) (valV s)]
     [(id x) (env-lookup x env)]
     [(prim op args) (prim-ops op (map (λ (a) (interp a env)) args))]
     [(fun x b) (closureV x b env)]
@@ -139,6 +146,7 @@ Hola
     (match res
       [(valV n) n]
       [(boolV b) b ]
+      [(StringV s) s]
       [(closureV x b env) res]
       )
       ))
