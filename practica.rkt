@@ -51,6 +51,7 @@ Hola
   [fun param body]
   [if-tf c t f]                         ; (if-tf <F1WAE> <F1WAE> <F1WAE>)
   [app fun-name expr]
+  [list-expr args]
   )
 
 (define primitives
@@ -101,6 +102,7 @@ Hola
     [(? boolean?) (bool src)]
     [(? string?) (String src)]
     [(? symbol?) (id src)]
+    [(cons 'list elems) (list-expr (map parse elems))]
     [(list 'with (list x e) b) (with x (parse e) (parse b))]
     [(list 'fun (list x) b) (fun x (parse b))]
     [(list fname arg) (app (parse fname) (parse arg))]
@@ -116,6 +118,7 @@ Hola
   (valV v)
   (boolV b)
   (StringV s)
+  (listV elems)
   (closureV arg body env); fun + env
   )
 
@@ -138,6 +141,7 @@ Hola
      (def (closureV arg body fenv) (interp f env))
      (interp body (extend-env arg (interp e env) fenv))
      ]
+    [(list-expr elems) (listV (map (λ(a) (interp a env)) elems))]
     )
   )
 
