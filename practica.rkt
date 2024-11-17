@@ -132,8 +132,25 @@ Hola
    (cons 'str-substring substring)
    (cons 'str-reverse (λ (s) (list->string (reverse (string->list s)))))
    )
-
 )
+
+(define list-primitives
+  (list
+   (cons 'my-map
+         (λ (f lst)
+           (if (and (list? lst) (closureV? f))
+               (listV (map (λ (elem)
+                             (valV-v (interp (app f (valV elem)) (closureV-env f))))
+                           (listV-elems lst)))
+               (error "my-map requires a function and a list"))))
+   (cons 'my-reject
+         (λ (f lst)
+           (if (and (list? lst) (closureV? f))
+               (listV (filter (λ (elem)
+                                (not (valV-v (interp (app f (valV elem)) (closureV-env f)))))
+                              (listV-elems lst)))
+               (error "my-reject requires a function and a list"))))
+   ))
 
 
 (deftype Env
@@ -154,7 +171,7 @@ Hola
 
 
 (define (primitive? op)
-  (or (assoc op numeric-primitives) (assoc op boolean-primitives) (assoc op string-primitives))
+  (or (assoc op numeric-primitives) (assoc op boolean-primitives) (assoc op string-primitives) (assoc op list-primitives))
   )
 
 ; parse : Src -> Expr
@@ -222,6 +239,9 @@ Hola
      (def (closureV arg body fenv) (interp f env))
      (interp body (extend-env arg (interp e env) fenv))
      ]
+    [(valV v) v] ; Manejo explícito para evitar duplicados de valV
+    [(listV lst) (listV lst)]
+    [(closureV arg body fenv) (closureV arg body fenv)]
     [(list-expr elems) (listV (map (λ(a) (interp a env)) elems))]
     [(seqn exprs) 
      (if (empty? exprs)
@@ -232,22 +252,49 @@ Hola
     )
   )
 
-(define (prim-ops op args) ; ((valV 1) (valV 2) (valV 3) (valV 4))
-  (let ([vals (map (λ (val) (valV-v val)) args)]) ; (1 2 3 4) --> Accedemos a los valores de los args enviados por el user
-    ;ahora aquí
-    (match op ; por cada uno de los tipos verficamos muchas cosas, para empezar sus tipos, y segundo, cada uno tiene distintas operaciones
-       [(? (λ (o) (assoc o numeric-primitives)))
-        (valV (apply (cdr (assq op numeric-primitives)) vals))
-       ]
-      [(? (λ (o) (assoc o boolean-primitives)))
-        (valV (apply (cdr (assq op boolean-primitives)) vals)) ; 10 -> (+ 1 2 3 4)
-       ]
-      [(? (λ (o) (assoc o string-primitives))) ; esto usamos para ver si la operacion esta en algun de los primitives
-        (valV (apply (cdr (assq op string-primitives)) vals)) ; 10 -> (+ 1 2 3 4)
-       ]
-      
-     )
-  )) ; (valV 10)
+
+
+(define (prim-ops op args) 
+  (if (eq? op 'my-map)
+      ; Caso específico para my-map
+      (let ([f (car args)]  ; Primer argumento: función (closureV)
+            [lst (cadr args)]) ; Segundo argumento: lista (listV)
+        (if (and (closureV? f) (listV? lst))
+            ; Mapear la función sobre los elementos de la lista
+            (listV (map (λ (elem)
+                          ; Interpretamos el cierre con cada elemento
+                          (interp (app f (valV elem)) (closureV-env f)))
+                        (listV-elems lst)))
+            (error "my-map requires a function and a list")))
+      ; Caso específico para my-reject
+      (if (eq? op 'my-reject)
+          (let ([f (car args)]  ; Primer argumento: función (closureV)
+                [lst (cadr args)]) ; Segundo argumento: lista (listV)
+            (if (and (closureV? f) (listV? lst))
+                ; Filtrar los elementos que NO cumplen la condición
+                (listV (filter (λ (elem)
+                                 (not (valV-v (interp (app f (valV elem)) (closureV-env f)))))
+                               (listV-elems lst)))
+                (error "my-reject requires a function and a list")))
+      ; Caso general para otras primitivas
+      (let ([vals (map (λ (val)
+                         (cond
+                           [(valV? val) (valV-v val)] ; Si es valV, desempaqueta
+                           [(closureV? val) val]      ; Si es closureV, lo deja igual
+                           [else val]))               ; Caso base, pasa el valor como está
+                       args)])
+        (match op 
+          [(? (λ (o) (assoc o numeric-primitives)))
+           (valV (apply (cdr (assq op numeric-primitives)) vals))]
+          [(? (λ (o) (assoc o boolean-primitives)))
+           (valV (apply (cdr (assq op boolean-primitives)) vals))]
+          [(? (λ (o) (assoc o string-primitives)))
+           (valV (apply (cdr (assq op string-primitives)) vals))]
+          [(? (λ (o) (assoc o list-primitives)))
+           (valV (apply (cdr (assq op list-primitives)) vals))])))))
+
+
+
 
 
 ; run: Src list[Fundefs]? -> Val
@@ -257,6 +304,7 @@ Hola
       [(valV n) n]
       [(boolV b) b ]
       [(StringV s) s]
+      [(listV lst) lst]
       [(closureV x b env) res]
       )
       ))
