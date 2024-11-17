@@ -164,7 +164,7 @@ Hola
     [(? string?) (String src)]
     [(? symbol?) (id src)]
     [(cons 'list elems) (list-expr (map parse elems))]
-    [(list 'with (list x e) b) (with x (parse e) (parse b))]
+    [(list 'with (list x e) b) (app (fun x (parse b)) (parse e))]
     [(list 'fun (list x) b) (fun x (parse b))]
     ;[(list fname arg)
     ; (if (primitive? fname)
@@ -172,6 +172,7 @@ Hola
       ;   (app (parse fname) (parse arg))
       ;)
      ;]
+    [(list 'if c t f) (if-tf (parse c) (parse t) (parse f))] ;ESTE ES IGUAL AL PRIM OP ARGS EN CUANDO A ARGS
     ;function application
     [(list fname arg) (if (primitive? fname)
                        (prim fname (list (parse arg)))
@@ -183,7 +184,7 @@ Hola
                        (prim op (map parse args))
                        (app (parse op) (map parse args)))]
     
-    [(list 'if-tf c t f) (if-tf (parse c) (parse t) (parse f))] ;ESTE ES IGUAL AL PRIM OP ARGS EN CUANDO A ARGS
+    
     ;YA QUE C T y F son args
     ;[(cons op args) (prim op (map parse args))] ; (num 1) (num 2) (num 3) (num 4)
     )
@@ -211,7 +212,7 @@ Hola
     [(fun x b) (closureV x b env)]
     [(with x ne b)
      (interp b (extend-env x (interp ne env) env))]
-    [(if-tf c t f) (if (valV (interp c env))
+    [(if-tf c t f) (if (valV-v (interp c env))
                          (interp t env)
                          (interp f env))]
     [(app f e)
