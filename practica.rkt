@@ -79,6 +79,7 @@ Hola
   [if-tf c t f]                         ; (if-tf <F1WAE> <F1WAE> <F1WAE>)
   [app fun-name expr]
   [list-expr args]
+  [seqn exprs]
   )
 
 (define numeric-primitives
@@ -172,7 +173,8 @@ Hola
       ;   (app (parse fname) (parse arg))
       ;)
      ;]
-    [(list 'if c t f) (if-tf (parse c) (parse t) (parse f))] ;ESTE ES IGUAL AL PRIM OP ARGS EN CUANDO A ARGS
+    [(cons 'seqn exprs) (seqn (map parse exprs))]
+    [(list 'iff c t f) (if-tf (parse c) (parse t) (parse f))] ;ESTE ES IGUAL AL PRIM OP ARGS EN CUANDO A ARGS
     ;function application
     [(list fname arg) (if (primitive? fname)
                        (prim fname (list (parse arg)))
@@ -183,6 +185,7 @@ Hola
     [(cons op args) (if (primitive? op)
                        (prim op (map parse args))
                        (app (parse op) (map parse args)))]
+    
     
     
     ;YA QUE C T y F son args
@@ -220,6 +223,12 @@ Hola
      (interp body (extend-env arg (interp e env) fenv))
      ]
     [(list-expr elems) (listV (map (λ(a) (interp a env)) elems))]
+    [(seqn exprs) 
+     (if (empty? exprs)
+         (error "seqn requires at least one expression")
+         (for/fold ([result (valV 0)])  ; valor inicial por defecto
+                  ([expr exprs])
+           (interp expr env)))]  ; retorna el último valor
     )
   )
 
