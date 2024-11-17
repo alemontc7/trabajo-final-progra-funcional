@@ -1,7 +1,7 @@
 #lang play
 (print-only-errors #t)
 #|
-```bnf
+bnf
 <expr> ::= <number?> | <boolean?> | <string?> | <symbol?>
          | {+ <expr> <expr>}
          | {- <expr> <expr>}
@@ -34,6 +34,7 @@
          | {id <sym>}
          | {fun {<id>} <expr>} ; definicion de funcion
          | {<expr> <expr>}; aplicacion de funcion
+         | {if-tf <expr> <expr> <expr>}
 
 F1WAE
 --> funciones no son valores, no las produce interp, map? filter?
