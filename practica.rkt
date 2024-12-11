@@ -80,6 +80,8 @@ Hola
   [app fun-name expr]
   [list-expr args]
   [seqn exprs]
+  [delay e]     ; Nueva cláusula para delay
+  [force e]     ; Nueva cláusula para force
   )
 
 (define numeric-primitives
@@ -183,6 +185,7 @@ Hola
     [(? symbol?) (id src)]
     [(cons 'list elems) (list-expr (map parse elems))]
     [(list 'with (list x e) b) (app (fun x (parse b)) (parse e))]
+    
     [(list 'fun (list x) b) (fun x (parse b))]
     ;[(list fname arg)
     ; (if (primitive? fname)
@@ -192,6 +195,11 @@ Hola
      ;]
     [(cons 'seqn exprs) (seqn (map parse exprs))]
     [(list 'iff c t f) (if-tf (parse c) (parse t) (parse f))] ;ESTE ES IGUAL AL PRIM OP ARGS EN CUANDO A ARGS
+
+    [(list 'delay e) (delay (parse e))]   ; Añadir soporte para delay
+    [(list 'force e) (force (parse e))]   ; Añadir soporte para force
+
+    
     ;function application
     [(list fname arg) (if (primitive? fname)
                        (prim fname (list (parse arg)))
@@ -218,7 +226,9 @@ Hola
   (StringV s)
   (listV elems)
   (closureV arg body env); fun + env
+  (promV expr env cache) ; promise
   )
+
 
 ; interp :: Expr Fundefs Env -> Valor
 ; evaluates an arithmetic expression
@@ -239,6 +249,14 @@ Hola
      (def (closureV arg body fenv) (interp f env))
      (interp body (extend-env arg (interp e env) fenv))
      ]
+
+    [(delay e) (promV e env '())]  ; Devuelve una promesa (perezosa) que se evaluará más tarde
+    [(force e) 
+     (let ([prom (interp e env)])
+       (if (promV? prom)
+           (valV-v (interp (promV-expr prom) env))  ; Evalúa la expresión de la promesa si es una promesa
+           (error "Cannot force a non-promise")))]
+    
     [(valV v) v] ; Manejo explícito para evitar duplicados de valV
     [(listV lst) (listV lst)]
     [(closureV arg body fenv) (closureV arg body fenv)]
@@ -306,6 +324,7 @@ Hola
       [(StringV s) s]
       [(listV lst) lst]
       [(closureV x b env) res]
+      [_ res]
       )
       ))
 
@@ -368,3 +387,12 @@ Hola
 (test (run '{str-len "hello"}) 5)
 (test (run '{str-substring "hello" 0 2}) "he")
 (test (run '{str-reverse "hello"}) "olleh")
+
+; Delay and Force Tests
+(test (run '{delay {+ 1 2}}) (promV (prim '+ (list (num 1) (num 2))) (mtEnv) '()))
+(test (run '{force (delay {+ 1 2})}) 3)
+(test (run '{delay {+ 5 10}}) (promV (prim '+ (list (num 5) (num 10))) (mtEnv) '()))
+(test (run '{force (delay {+ 5 10})}) 15)
+(test (run '{force (delay {strApp "Hello" " World"})}) "Hello World")
+(test (run '{delay {== 5 5}}) (promV (prim '== (list (num 5) (num 5))) empty-env '()))
+(test (run '{force (delay {== 5 5})}) #t)
