@@ -182,7 +182,8 @@ Hola
     [(? symbol?) (id src)]
     [(cons 'list elems) (list-expr (map parse elems))]
     [(list 'with (list x e) b) (app (fun x (parse b)) (parse e))]
-    
+    [(list 'rec-y (list x e) b) (parse `(with (,x (Y (fun (,x) ,e))),b))]
+
     [(list 'fun (list x) b) (fun x (parse b))]
     ;[(list fname arg)
     ; (if (primitive? fname)
@@ -219,6 +220,15 @@ Hola
     ;[(cons op args) (prim op (map parse args))] ; (num 1) (num 2) (num 3) (num 4)
     )
   )
+
+(define Y-expr
+  (parse '{fun {f}
+               {with {h {fun {g}
+                             {fun {n}
+                                  {{f {g g}} n}}}}
+                     {h h}}}))
+
+
 
 ; Como puedo representar a una funcion como valor? 
 
@@ -274,6 +284,9 @@ Hola
            (interp expr env)))]  ; retorna el último valor
     )
   )
+
+(define initial-env
+  (extend-env 'Y (interp Y-expr empty-env) empty-env))
 
 
 
@@ -364,7 +377,7 @@ Hola
 
 ; run: Src list[Fundefs]? -> Val
 (define (run prog)
-  (let ([res (interp (parse prog) empty-env)])
+  (let ([res (interp (parse prog) initial-env)])
     (match res
       [(valV n) n]
       [(boolV b) b ]
@@ -437,12 +450,12 @@ Hola
 (test (run '{str-reverse "hello"}) "olleh")
 
 ; Delay and Force Tests (PROBLEMA 3)
-(test (run '{delay {+ 1 2}}) (promV (prim '+ (list (num 1) (num 2))) (mtEnv) '()))
+(test (run '{delay {+ 1 2}}) (promV (prim '+ (list (num 1) (num 2))) initial-env '()))
 (test (run '{force (delay {+ 1 2})}) 3)
-(test (run '{delay {+ 5 10}}) (promV (prim '+ (list (num 5) (num 10))) (mtEnv) '()))
+(test (run '{delay {+ 5 10}}) (promV (prim '+ (list (num 5) (num 10))) initial-env '()))
 (test (run '{force (delay {+ 5 10})}) 15)
 (test (run '{force (delay {strApp "Hello" " World"})}) "Hello World")
-(test (run '{delay {== 5 5}}) (promV (prim '== (list (num 5) (num 5))) empty-env '()))
+(test (run '{delay {== 5 5}}) (promV (prim '== (list (num 5) (num 5))) initial-env '()))
 (test (run '{force (delay {== 5 5})}) #t)
 
 ; My-map and My-reject Tests (PROBLEMA 1)
@@ -464,6 +477,36 @@ Hola
 
 
 ; Evaluacion perezosa con keyword lazy Tests (PROBLEMA 5)
-(test (run '{lazy {+ 1 2}}) (promV (prim '+ (list (num 1) (num 2))) (mtEnv) #f))
+(test (run '{lazy {+ 1 2}}) (promV (prim '+ (list (num 1) (num 2))) initial-env #f))
 (test (run '{force {lazy {+ 1 (force {lazy {+ 2 3}})}}}) 6)
 
+
+;RECURSIVIDAD USANDO Y COMBINATOR Y LAMBDA CALCULO
+
+(test (run '{rec-y {fact {fun {n}
+                         {iff {== n 0}
+                              1
+                              {* n {fact {- n 1}}}}}}
+          {fact 5}}) 120)
+
+
+(test (run '{rec-y {sum {fun {n}
+                       {iff {== n 0}
+                            0
+                            {+ n {sum {- n 1}}}}}}
+          {sum 10}}) 55)
+
+
+(test (run '{rec-y {fib {fun {n}
+                       {iff {== n 0}
+                            0
+                            {iff {== {- n 1} 0}
+                                 1
+                                 {+ {fib {- n 1}} {fib {- n 2}}}}}}}
+          {fib 10}}) 55) 
+
+(test (run '{rec-y {power-base2 {fun {exp}
+                          {iff {== 0 exp}
+                               1
+                               {* 2 {power-base2 {- exp 1}}}}}}
+          {power-base2 2}}) 4)
