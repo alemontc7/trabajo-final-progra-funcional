@@ -82,6 +82,7 @@ Hola
   [seqn exprs]
   [delay e]     ; Nueva cláusula para delay
   [force e]     ; Nueva cláusula para force
+  [lazy e]
   )
 
 (define numeric-primitives
@@ -196,6 +197,7 @@ Hola
     [(cons 'seqn exprs) (seqn (map parse exprs))]
     [(list 'iff c t f) (if-tf (parse c) (parse t) (parse f))] ;ESTE ES IGUAL AL PRIM OP ARGS EN CUANDO A ARGS
 
+    [(list 'lazy e) (lazy (parse e))]
     [(list 'delay e) (delay (parse e))]   ; Añadir soporte para delay
     [(list 'force e) (force (parse e))]   ; Añadir soporte para force
 
@@ -249,7 +251,7 @@ Hola
      (def (closureV arg body fenv) (interp f env))
      (interp body (extend-env arg (interp e env) fenv))
      ]
-
+    [(lazy e) (promV e env #f)] 
     [(delay e) (promV e env '())]  ; Devuelve una promesa (perezosa) que se evaluará más tarde
     [(force e) 
      (let ([prom (interp e env)])
@@ -388,7 +390,7 @@ Hola
 (test (run '{str-substring "hello" 0 2}) "he")
 (test (run '{str-reverse "hello"}) "olleh")
 
-; Delay and Force Tests
+; Delay and Force Tests (PROBLEMA 3)
 (test (run '{delay {+ 1 2}}) (promV (prim '+ (list (num 1) (num 2))) (mtEnv) '()))
 (test (run '{force (delay {+ 1 2})}) 3)
 (test (run '{delay {+ 5 10}}) (promV (prim '+ (list (num 5) (num 10))) (mtEnv) '()))
@@ -396,3 +398,11 @@ Hola
 (test (run '{force (delay {strApp "Hello" " World"})}) "Hello World")
 (test (run '{delay {== 5 5}}) (promV (prim '== (list (num 5) (num 5))) empty-env '()))
 (test (run '{force (delay {== 5 5})}) #t)
+
+; My-map and My-reject Tests (PROBLEMA 1)
+(test (run '{my-map {fun {x} {+ x 1}} {list 1 2 3 4}}) (list (valV 2) (valV 3) (valV 4) (valV 5)))
+(test (run '{my-reject {fun {x} {> x 2}} {list 1 2 3 4}}) (list (valV 1) (valV 2) ))
+
+; Evaluacion perezosa con keyword lazy Tests (PROBLEMA 5)
+(test (run '{lazy {+ 1 2}}) (promV (prim '+ (list (num 1) (num 2))) (mtEnv) #f))
+(test (run '{force {lazy {+ 1 (force {lazy {+ 2 3}})}}}) 6)
