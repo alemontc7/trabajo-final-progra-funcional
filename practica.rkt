@@ -137,6 +137,9 @@ Hola
    (cons 'str-reverse (λ (s) (list->string (reverse (string->list s)))))
    (cons 'my-map '())
    (cons 'my-reject '())
+   (cons 'head '())
+   (cons 'tail '())
+   (cons 'empty '())
    )
 )
 
@@ -289,43 +292,73 @@ Hola
            (valV (apply (cdr (assq op boolean-primitives)) vals))])))
 
 (define (stl-ops op args)
-  (if (eq? op 'my-map)
-      ; Caso específico para my-map
-      (let ([f (car args)]   ; Primer argumento: función (closureV)
-            [lst (cadr args)]) ; Segundo argumento: lista (listV)
-        (if (and (closureV? f) (listV? lst)) ;si ambos son elementos validos...
-            ; mapeamos la función sobre los elementos de la lista
-            (listV (map (λ (elem)
-                          ; Interpretamos el cierre con cada elemento
-                          (valV-v (interp (app f (valV elem)) (closureV-env f)))) ;interpretamos la expre resultante de la
-                        ;aplicacion de la f con el elem en el contexto del env del closure de ese f
-                        (listV-elems lst)))
-            (error "my-map requires a function and a list"))) ;si no nos dan una fun y una lst, f nomas
+  (match op
+    ; Caso específico para my-map
+    ['my-map
+     (let ([f (car args)]   ; Primer argumento: función (closureV)
+           [lst (cadr args)]) ; Segundo argumento: lista (listV)
+       (if (and (closureV? f) (listV? lst)) ; si ambos son elementos válidos...
+           ; mapeamos la función sobre los elementos de la lista
+           (listV (map valV (map (λ (elem)
+                         ; Interpretamos el cierre con cada elemento
+                         (valV-v (interp (app f (valV elem)) (closureV-env f)))) ; interpretamos la expr resultante
+                       ; de la aplicación de f con elem en el contexto del env del closure de ese f
+                       (listV-elems lst))))
+           (error "my-map requires a function and a list")))] ; si no nos dan una fun y una lst, error nomás
 
-      (if (eq? op 'my-reject)
-          ; Caso específico para my-reject
-          (let ([f (car args)]   ; Primer argumento: función (closureV)
-                [lst (cadr args)]) ; Segundo argumento: lista (listV)
-            (if (and (closureV? f) (listV? lst))
-                ; Filtrar los elementos que NO cumplen la condición
-                (listV (map valV-v (filter (λ (elem)
-                                 (not (valV-v (interp (app f (valV elem)) (closureV-env f)))))
-                               (listV-elems lst))))
-                (error "my-reject requires a function and a list")))
-          ;para otras operaciones del STL
-          (let ([vals (map (λ (val)
-                             (cond
-                               [(valV? val) (valV-v val)] ; si es valV, desempaqueta
-                               [else val]))               ; caso base, pasa el valor como está
-                           args)]
-                [func (assoc op stl-operations)])
-            (if func
-                (valV (apply (cdr func) vals))
-                (error "Unknown STL operation"))))))
+    ; Caso específico para my-reject
+    ['my-reject
+     (let ([f (car args)]   ; Primer argumento: función (closureV)
+           [lst (cadr args)]) ; Segundo argumento: lista (listV)
+       (if (and (closureV? f) (listV? lst))
+           ; Filtrar los elementos que NO cumplen la condición
+           (listV (filter (λ (elem)
+                                        (not (valV-v (interp (app f (valV elem)) (closureV-env f))))) ; interpretamos
+                                      (listV-elems lst)))
+           (error "my-reject requires a function and a list")))]
+
+    ; Caso específico para car
+    ;['car]
+    ['head
+     (let ([lst (car args)]) ; sacamos la lst 
+       (if (listV? lst) ; check si es un val listV
+           (if (empty? (listV-elems lst)) ; si esta vacia la listV-elems,osea la real
+               (error "head: empty list")
+               (valV (car (listV-elems lst)))) ; si no, devolvemos el prim elem de esa list
+           (error "head: requires a listV"))) ; si no es una listV, error
+     ]
+    ['tail
+     (let ([lst (car args)]) ; sacamos la lst 
+       (if (listV? lst) ; check si es un val listV
+           (if (empty? (listV-elems lst)) ; si esta vacia la listV-elems,osea la real
+               (error "head: empty list")
+               (cdr (listV-elems lst))) ; si no, devolvemos el resto de elems de esa list; mapeamos para que nos devuelva con valv
+           (error "head: requires a listV"))) ; si no es una listV, error
+     ]
+    ['empty
+     (let ([lst (car args)])
+       (if (listV? lst)
+           (if (empty? (listV-elems lst))
+               #t ; vacía
+               #f) ; no vacía
+       (error "empty: requires a listV")))
+     ]
 
 
+    
 
 
+    ; Caso general para operaciones del STL
+    [_
+     (let ([vals (map (λ (val)
+                        (cond
+                          [(valV? val) (valV-v val)] ; Si es valV, desempaqueta
+                          [else val]))               ; Caso base, pasa el valor como está
+                      args)]
+           [func (assoc op stl-operations)]) ; Busca en las operaciones del STL
+       (if func
+           (valV (apply (cdr func) vals)) ; Aplica la operación genérica
+           (error "Unknown STL operation")))])) ; Si no es reconocida, error
 
 
 
@@ -413,9 +446,24 @@ Hola
 (test (run '{force (delay {== 5 5})}) #t)
 
 ; My-map and My-reject Tests (PROBLEMA 1)
-(test (run '{my-map {fun {x} {+ x 1}} {list 1 2 3 4}}) '(2 3 4 5))
-(test (run '{my-reject {fun {x} {> x 2}} {list 1 2 3 4}}) '(1 2))
+(test (run '{my-map {fun {x} {+ x 1}} {list 1 2 3 4}}) (list (valV 2) (valV 3) (valV 4) (valV 5)))
+(test (run '{my-reject {fun {x} {> x 2}} {list 1 2 3 4}}) (list (valV 1) (valV 2)))
+
+;Head and Tail Tests
+(test (run '{head {list 1 2 3}}) (valV 1)) ;
+(test/exn (run '{head {list}}) "head: empty list") 
+(test/exn (run '{head 42}) "head: requires a listV") 
+(test (run '{head {list 5}}) (valV 5))
+(test (run '{head {list {list 1 2} 3 4}}) (listV (list (valV 1) (valV 2))))
+(test (run '{head {list "hello" "world"}}) (valV "hello"))
+(test (run '{head {list #t #f #t}}) (valV #t))
+
+(test (run '{empty {list}}) #t)
+
+
+
 
 ; Evaluacion perezosa con keyword lazy Tests (PROBLEMA 5)
 (test (run '{lazy {+ 1 2}}) (promV (prim '+ (list (num 1) (num 2))) (mtEnv) #f))
 (test (run '{force {lazy {+ 1 (force {lazy {+ 2 3}})}}}) 6)
+
