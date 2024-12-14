@@ -83,6 +83,7 @@ Hola
   [delay e]     ; Nueva cláusula para delay
   [force e]     ; Nueva cláusula para force
   [lazy e]
+  [stl-op op args] ;Similar a C++ donde tenemos una stl que tiene las operacions de map, vector, y string, aqui tambien tendremos una "stl"
   )
 
 (define numeric-primitives
@@ -124,7 +125,7 @@ Hola
    )
   )
 
-(define string-primitives
+(define stl-operations
   (list
    (cons 'strApp string-append)
    (cons 'strAt (λ(string index) (string-ref string index)))
@@ -134,26 +135,10 @@ Hola
    (cons 'str-len string-length)
    (cons 'str-substring substring)
    (cons 'str-reverse (λ (s) (list->string (reverse (string->list s)))))
+   (cons 'my-map '())
+   (cons 'my-reject '())
    )
 )
-
-(define list-primitives
-  (list
-   (cons 'my-map
-         (λ (f lst)
-           (if (and (list? lst) (closureV? f))
-               (listV (map (λ (elem)
-                             (valV-v (interp (app f (valV elem)) (closureV-env f))))
-                           (listV-elems lst)))
-               (error "my-map requires a function and a list"))))
-   (cons 'my-reject
-         (λ (f lst)
-           (if (and (list? lst) (closureV? f))
-               (listV (filter (λ (elem)
-                                (not (valV-v (interp (app f (valV elem)) (closureV-env f)))))
-                              (listV-elems lst)))
-               (error "my-reject requires a function and a list"))))
-   ))
 
 
 (deftype Env
@@ -174,8 +159,16 @@ Hola
 
 
 (define (primitive? op)
-  (or (assoc op numeric-primitives) (assoc op boolean-primitives) (assoc op string-primitives) (assoc op list-primitives))
+  (or (assoc op numeric-primitives) (assoc op boolean-primitives))
+  ;aqui ya no tomamos en cuenta los string primitives ni los lists primitives por que conceptualmente no son primitivas
+  ; y forman parte de la stl de nuestro lenguaje
   )
+
+; creamos un nuevo tipo de "verificador o checker de operacion"
+
+(define (stl? op)
+  (or (assoc op stl-operations) #f))
+
 
 ; parse : Src -> Expr
 (define (parse src)
@@ -203,15 +196,19 @@ Hola
 
     
     ;function application
-    [(list fname arg) (if (primitive? fname)
-                       (prim fname (list (parse arg)))
-                       (app (parse fname) (parse arg)))]
+    [(list fname arg)
+     (cond
+       [(primitive? fname) (prim fname (list (parse arg)))]
+       [(stl? fname) (stl-op fname (list (parse arg)))] ; tambien verificamos el stl ahora
+       [else (app (parse fname) (parse arg))])]
+
     ; primitive op
     ; El interp confundia un primitvo que tomaba un argumento por un free identifier y devolvia un app f e
     ; por lo que decidimos aumentar ese if extra en ambos casos para evitar confusiones 
-    [(cons op args) (if (primitive? op)
-                       (prim op (map parse args))
-                       (app (parse op) (map parse args)))]
+    [(cons op args) (cond
+                  [(primitive? op) (prim op (map parse args))]
+                  [(stl? op) (stl-op op (map parse args))]
+                  [else (app (parse op) (map parse args))])]
     
     
     
@@ -240,6 +237,9 @@ Hola
     [(bool b) (valV b)]
     [(String s) (valV s)]
     [(prim op args) (prim-ops op (map (λ (a) (interp a env)) args))]
+    [(stl-op op args)
+     (stl-ops op (map (λ (a) (interp a env)) args))
+    ]
     [(id x) (env-lookup x env)]
     [(fun x b) (closureV x b env)]
     [(with x ne b)
@@ -275,28 +275,7 @@ Hola
 
 
 (define (prim-ops op args) 
-  (if (eq? op 'my-map)
-      ; Caso específico para my-map
-      (let ([f (car args)]  ; Primer argumento: función (closureV)
-            [lst (cadr args)]) ; Segundo argumento: lista (listV)
-        (if (and (closureV? f) (listV? lst))
-            ; Mapear la función sobre los elementos de la lista
-            (listV (map (λ (elem)
-                          ; Interpretamos el cierre con cada elemento
-                          (interp (app f (valV elem)) (closureV-env f)))
-                        (listV-elems lst)))
-            (error "my-map requires a function and a list")))
-      ; Caso específico para my-reject
-      (if (eq? op 'my-reject)
-          (let ([f (car args)]  ; Primer argumento: función (closureV)
-                [lst (cadr args)]) ; Segundo argumento: lista (listV)
-            (if (and (closureV? f) (listV? lst))
-                ; Filtrar los elementos que NO cumplen la condición
-                (listV (filter (λ (elem)
-                                 (not (valV-v (interp (app f (valV elem)) (closureV-env f)))))
-                               (listV-elems lst)))
-                (error "my-reject requires a function and a list")))
-      ; Caso general para otras primitivas
+       ; Caso general para otras primitivas
       (let ([vals (map (λ (val)
                          (cond
                            [(valV? val) (valV-v val)] ; Si es valV, desempaqueta
@@ -307,11 +286,44 @@ Hola
           [(? (λ (o) (assoc o numeric-primitives)))
            (valV (apply (cdr (assq op numeric-primitives)) vals))]
           [(? (λ (o) (assoc o boolean-primitives)))
-           (valV (apply (cdr (assq op boolean-primitives)) vals))]
-          [(? (λ (o) (assoc o string-primitives)))
-           (valV (apply (cdr (assq op string-primitives)) vals))]
-          [(? (λ (o) (assoc o list-primitives)))
-           (valV (apply (cdr (assq op list-primitives)) vals))])))))
+           (valV (apply (cdr (assq op boolean-primitives)) vals))])))
+
+(define (stl-ops op args)
+  (if (eq? op 'my-map)
+      ; Caso específico para my-map
+      (let ([f (car args)]   ; Primer argumento: función (closureV)
+            [lst (cadr args)]) ; Segundo argumento: lista (listV)
+        (if (and (closureV? f) (listV? lst)) ;si ambos son elementos validos...
+            ; mapeamos la función sobre los elementos de la lista
+            (listV (map (λ (elem)
+                          ; Interpretamos el cierre con cada elemento
+                          (valV-v (interp (app f (valV elem)) (closureV-env f)))) ;interpretamos la expre resultante de la
+                        ;aplicacion de la f con el elem en el contexto del env del closure de ese f
+                        (listV-elems lst)))
+            (error "my-map requires a function and a list"))) ;si no nos dan una fun y una lst, f nomas
+
+      (if (eq? op 'my-reject)
+          ; Caso específico para my-reject
+          (let ([f (car args)]   ; Primer argumento: función (closureV)
+                [lst (cadr args)]) ; Segundo argumento: lista (listV)
+            (if (and (closureV? f) (listV? lst))
+                ; Filtrar los elementos que NO cumplen la condición
+                (listV (map valV-v (filter (λ (elem)
+                                 (not (valV-v (interp (app f (valV elem)) (closureV-env f)))))
+                               (listV-elems lst))))
+                (error "my-reject requires a function and a list")))
+          ;para otras operaciones del STL
+          (let ([vals (map (λ (val)
+                             (cond
+                               [(valV? val) (valV-v val)] ; si es valV, desempaqueta
+                               [else val]))               ; caso base, pasa el valor como está
+                           args)]
+                [func (assoc op stl-operations)])
+            (if func
+                (valV (apply (cdr func) vals))
+                (error "Unknown STL operation"))))))
+
+
 
 
 
@@ -354,6 +366,7 @@ Hola
 
 
 ; Numeric Primitives Tests
+
 (test (run '{+ 1 2}) 3)
 (test (run '{- 10 5}) 5)
 (test (run '{* 4 3}) 12)
@@ -400,8 +413,8 @@ Hola
 (test (run '{force (delay {== 5 5})}) #t)
 
 ; My-map and My-reject Tests (PROBLEMA 1)
-(test (run '{my-map {fun {x} {+ x 1}} {list 1 2 3 4}}) (list (valV 2) (valV 3) (valV 4) (valV 5)))
-(test (run '{my-reject {fun {x} {> x 2}} {list 1 2 3 4}}) (list (valV 1) (valV 2) ))
+(test (run '{my-map {fun {x} {+ x 1}} {list 1 2 3 4}}) '(2 3 4 5))
+(test (run '{my-reject {fun {x} {> x 2}} {list 1 2 3 4}}) '(1 2))
 
 ; Evaluacion perezosa con keyword lazy Tests (PROBLEMA 5)
 (test (run '{lazy {+ 1 2}}) (promV (prim '+ (list (num 1) (num 2))) (mtEnv) #f))
