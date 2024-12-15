@@ -172,6 +172,14 @@ Hola
 (define (stl? op)
   (or (assoc op stl-operations) #f))
 
+(define (wrap-withs variables body)
+  (foldr (λ (var acc) 
+           (match var
+             [(list id expr) (app (fun id acc) (parse expr))]))
+         (parse body)
+         variables))
+
+
 
 ; parse : Src -> Expr
 (define (parse src)
@@ -181,8 +189,9 @@ Hola
     [(? string?) (String src)]
     [(? symbol?) (id src)]
     [(cons 'list elems) (list-expr (map parse elems))]
-    [(list 'with (list x e) b) (app (fun x (parse b)) (parse e))]
-    [(list 'rec-y (list x e) b) (parse `(with (,x (Y (fun (,x) ,e))),b))]
+    ;[(list 'with (list x e) b) (app (fun x (parse b)) (parse e))]
+    [(list 'with variables body) (wrap-withs variables body)]
+    [(list 'rec-y (list x e) b) (parse `(with ((,x (Y (fun (,x) ,e)))),b))]
 
     [(list 'fun (list x) b) (fun x (parse b))]
     ;[(list fname arg)
@@ -223,9 +232,9 @@ Hola
 
 (define Y-expr
   (parse '{fun {f}
-               {with {h {fun {g}
+               {with {{h {fun {g}
                              {fun {n}
-                                  {{f {g g}} n}}}}
+                                  {{f {g g}} n}}}}}
                      {h h}}}))
 
 
@@ -510,3 +519,8 @@ Hola
                                1
                                {* 2 {power-base2 {- exp 1}}}}}}
           {power-base2 2}}) 4)
+
+;TESTS WITH N
+
+(test (run '{with {{x 3} {y 4}} {+ x y}}) 7)
+(run '{with {{x {fun {a} {+ a 1}}} {y {fun {a} {+ a 1}}}} {+ {y 8} {x 6}}})
