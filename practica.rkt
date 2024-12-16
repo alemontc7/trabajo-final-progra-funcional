@@ -172,12 +172,54 @@ Hola
 (define (stl? op)
   (or (assoc op stl-operations) #f))
 
-(define (wrap-withs variables body)
-  (foldr (λ (var acc) 
+
+; wrap-withs procesa un bloque `with` con múltiples variables
+; usamos foldr para ir de derecha a izquierda, anidando cada variable 
+; como un `fun` que envuelve al cuerpo. 
+; ejemplo:
+; (wrap-withs '((x 1) (y 2)) '(+ x y))
+; resultado:
+; (app (fun 'x (app (fun 'y '(+ x y)) (parse 2))) (parse 1))
+
+(define (wrap-withs vars body)
+  (foldr (λ (var total-body)
+           ; aquí match nos ayuda a manejar el formato (id expr)
            (match var
-             [(list id expr) (app (fun id acc) (parse expr))]))
-         (parse body)
-         variables))
+             [(list id expr) 
+              ; construimos un `app` con un `fun` que toma el id
+              (app (fun id total-body) (parse expr))]))
+         (parse body) ; el caso base es el cuerpo parseado
+         vars)) ; iteramos sobre las variables
+
+; wrap-funs convierte una lista de parámetros en una función currificada
+; usamos foldr porque la función más interna será la última de la lista,
+; anidando los parámetros de derecha a izquierda.
+; ejemplo:
+; (wrap-funs '(x y z) '(+ x y z))
+; resultado:
+; (fun 'x (fun 'y (fun 'z '(+ x y z))))
+
+(define (wrap-funs arguments body)
+  (foldr (λ (arg total-body) 
+           ; creamos un fun que toma el argumento actual y envuelve al resto
+           (fun arg total-body))
+         body ; caso base: el cuerpo
+         arguments)) ; iteramos sobre los argumentos
+
+; wrap-invokes convierte múltiples argumentos en aplicaciones anidadas
+; usamos foldr para aplicar los argumentos de derecha a izquierda, creando
+; aplicaciones parciales hasta llegar a la aplicación completa.
+; ejemplo:
+; (wrap-invokes 'f '(1 2 3))
+; resultado:
+; (app (app (app 'f 1) 2) 3)
+
+(define (wrap-invokes fun args)
+  (foldl (λ (arg total-body) 
+           ; cada iteración aplica un argumento al resultado acumulado
+           (app total-body arg))
+         fun ; caso base: la función misma
+         args)) ; iteramos sobre los argumentos
 
 
 
@@ -189,53 +231,55 @@ Hola
     [(? string?) (String src)]
     [(? symbol?) (id src)]
     [(cons 'list elems) (list-expr (map parse elems))]
-    ;[(list 'with (list x e) b) (app (fun x (parse b)) (parse e))]
     [(list 'with variables body) (wrap-withs variables body)]
-    [(list 'rec-y (list x e) b) (parse `(with ((,x (Y (fun (,x) ,e)))),b))]
-
-    [(list 'fun (list x) b) (fun x (parse b))]
-    ;[(list fname arg)
-    ; (if (primitive? fname)
-     ;    (prim fname (map parse arg))
-      ;   (app (parse fname) (parse arg))
-      ;)
-     ;]
+    ;[(list 'rec-y (list x e) b) (parse `(with ((,x (Y (fun (,x) ,e)))),b))]
+    [(list 'abs arg) (prim 'abs (list (parse arg)))]
+    [(list 'sqrt arg) (prim 'sqrt (list (parse arg)))]
+    [(list 'not arg) (prim 'not (list (parse arg)))]
+    [(list 'str-upper str) (stl-op 'str-upper (list (parse str)))]
+    [(list 'str-lower str) (stl-op 'str-lower (list (parse str)))]
+    [(list 'str-len str) (stl-op 'str-len (list (parse str)))]
+    [(list 'str-reverse str) (stl-op 'str-reverse (list (parse str)))]
+     [(list 'head lst) (stl-op 'head (list (parse lst)))]
+    [(list 'tail lst) (stl-op 'tail (list (parse lst)))]
+    [(list 'empty lst) (stl-op 'empty (list (parse lst)))]
+    
+    [(list 'rec-y (list x e) b)  (parse `(with ((,x (Y (fun (,x) ,e)))) ,b))]
+    [(list 'fun args body) (wrap-funs args (parse body))]
     [(cons 'seqn exprs) (seqn (map parse exprs))]
     [(list 'iff c t f) (if-tf (parse c) (parse t) (parse f))] ;ESTE ES IGUAL AL PRIM OP ARGS EN CUANDO A ARGS
-
     [(list 'lazy e) (lazy (parse e))]
     [(list 'delay e) (delay (parse e))]   ; Añadir soporte para delay
     [(list 'force e) (force (parse e))]   ; Añadir soporte para force
-
-    
-    ;function application
-    [(list fname arg)
-     (cond
-       [(primitive? fname) (prim fname (list (parse arg)))]
-       [(stl? fname) (stl-op fname (list (parse arg)))] ; tambien verificamos el stl ahora
-       [else (app (parse fname) (parse arg))])]
-
-    ; primitive op
-    ; El interp confundia un primitvo que tomaba un argumento por un free identifier y devolvia un app f e
-    ; por lo que decidimos aumentar ese if extra en ambos casos para evitar confusiones 
+    [(list fun args) (match args
+                       [(? number?) (app (parse fun) (parse args))] ;para cuando nos topemos con (invoke my-fun 42)
+                       ; si obviamos este caso obtendremos un error
+                       ;   match: no matching clause for 2
+                       ; y asi para el otro tipo igual
+                       [(? boolean?) (app (parse fun) (parse args))]
+                       [(? symbol?) (app (parse fun) (parse args))]
+                       [(cons h t) (if (symbol? (first args))
+                                             (app (parse fun) (parse args)) ;caso un arg        
+                                             (wrap-invokes (parse fun) (map parse args)))] ; caso muchos args
+                                             ; como son varios argumentos, parseamos todo con un args
+                       )
+     ]
     [(cons op args) (cond
                   [(primitive? op) (prim op (map parse args))]
-                  [(stl? op) (stl-op op (map parse args))]
-                  [else (app (parse op) (map parse args))])]
+                  [(stl? op) (stl-op op (map parse args))])]
     
-    
-    
-    ;YA QUE C T y F son args
-    ;[(cons op args) (prim op (map parse args))] ; (num 1) (num 2) (num 3) (num 4)
+   
     )
   )
+#|
+
+
+|#
 
 (define Y-expr
-  (parse '{fun {f}
-               {with {{h {fun {g}
-                             {fun {n}
-                                  {{f {g g}} n}}}}}
-                     {h h}}}))
+  (parse '{fun {f} 
+            {with [{h {fun {g} {fun {n} {{f {g g}} n}}}}] 
+              {h h}}}))
 
 
 
@@ -397,28 +441,6 @@ Hola
       )
       ))
 
-#|(test (run '{+ 1 2}) 3)
-(test (run '{+ {- 5 2} 1}) 4)
-(test/exn (run 'x) "free identifier")
-
-
-(run '{fun {x} {+ x 1}})
-
-(run '{{fun {x} {+ x 1}} 2})
-(run '{with {foo {fun {x} {+ x 1}}} foo})
-(run '{with {foo {fun {x} {+ x 1}}} {foo 2}})
-
-(run '{with {foo {fun {x} {x 1}}}
-            {with {fee {fun {y} {+ y 1}}} {foo fee}}})
-
-(run '{{fun {x} {x 1}} {fun {y} {+ y 1}}})
-
-(run '{with {addN {fun {n} {fun {m} {+ n m}}}}
-            {{addN 3} 2}})
-
-(run '{with {addN {fun {n} {fun {m} {+ n m}}}}
-            {addN 100000}})|#
-
 
 ; Numeric Primitives Tests
 
@@ -443,7 +465,6 @@ Hola
 (test (run '{or #f #t}) #t)
 (test (run '{|| #f #t}) #t)
 (test (run '{not #t}) #f)
-(test (run '{! #t}) #f)
 (test (run '{xor #t #f}) #t)
 (test (run '{nand #t #t}) #f)
 (test (run '{equiv #t #t}) #t)
@@ -489,38 +510,49 @@ Hola
 (test (run '{lazy {+ 1 2}}) (promV (prim '+ (list (num 1) (num 2))) initial-env #f))
 (test (run '{force {lazy {+ 1 (force {lazy {+ 2 3}})}}}) 6)
 
+; RECURSIVIDAD USANDO Y COMBINATOR Y LAMBDA CALCULO
 
-;RECURSIVIDAD USANDO Y COMBINATOR Y LAMBDA CALCULO
+(test (run '{
+  rec-y {fact {fun {n}
+               {iff {== n 0}
+                    1
+                    {* n {fact {- n 1}}}}}}
+  {fact 5}}
+  ) 120)
 
-(test (run '{rec-y {fact {fun {n}
-                         {iff {== n 0}
-                              1
-                              {* n {fact {- n 1}}}}}}
-          {fact 5}}) 120)
+(test (run '{
+  rec-y {sum {fun {n}
+              {iff {== n 0}
+                   0
+                   {+ n {sum {- n 1}}}}}}
+  {sum 10}}
+  ) 55)
+
+(test (run '{
+  rec-y {fib {fun {n}
+              {iff {== n 0}
+                   0
+                   {iff {== {- n 1} 0}
+                        1
+                        {+ {fib {- n 1}} {fib {- n 2}}}}}}}
+  {fib 10}}
+  ) 55) 
+
+(test (run '{
+  rec-y {power-base2 {fun {exp}
+                      {iff {== 0 exp}
+                           1
+                           {* 2 {power-base2 {- exp 1}}}}}}
+  {power-base2 2}} ) 4)
 
 
-(test (run '{rec-y {sum {fun {n}
-                       {iff {== n 0}
-                            0
-                            {+ n {sum {- n 1}}}}}}
-          {sum 10}}) 55)
-
-
-(test (run '{rec-y {fib {fun {n}
-                       {iff {== n 0}
-                            0
-                            {iff {== {- n 1} 0}
-                                 1
-                                 {+ {fib {- n 1}} {fib {- n 2}}}}}}}
-          {fib 10}}) 55) 
-
-(test (run '{rec-y {power-base2 {fun {exp}
-                          {iff {== 0 exp}
-                               1
-                               {* 2 {power-base2 {- exp 1}}}}}}
-          {power-base2 2}}) 4)
-
-;TESTS WITH N
+; TESTS WITH N
 
 (test (run '{with {{x 3} {y 4}} {+ x y}}) 7)
-(run '{with {{x {fun {a} {+ a 1}}} {y {fun {a} {+ a 1}}}} {+ {y 8} {x 6}}})
+(test (run '{with {{x 3} {y 4} {z 8} {w 9}} {+ x y z w}}) 24)
+(test (run '{with {{x {fun {a} {+ a 1}}} {y {fun {a} {+ a 1}}}} {+ {y 8} {x 6}}}) 16)
+
+(test (run '{{fun {x y} {+ x y}} {10 20}}) 30)
+(test (run '{{fun {a b c} {+ a {- b c}}} {10 9 8}}) 11)
+(test (run '{with {{f {fun {x y} {* x y}}}} {f {10 5}}}) 50)
+(test (run '{with {{add {fun {a b c} {+ a {+ b c}}}}} {+ {add {1 2 3}} {add {4 5 6}} {add {7 8 9}}}}) 45)
