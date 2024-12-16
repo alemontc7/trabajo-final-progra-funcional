@@ -82,8 +82,7 @@ Hola
   [seqn exprs]
   [delay e]     ; Nueva cláusula para delay
   [force e]     ; Nueva cláusula para force
-  [lazy param body]
-  [force-lazy e]
+  [lazy fname args]
   [stl-op op args] ;Similar a C++ donde tenemos una stl que tiene las operacions de map, vector, y string, aqui tambien tendremos una "stl"
   )
 
@@ -222,19 +221,12 @@ Hola
          fun ; caso base: la función misma
          args)) ; iteramos sobre los argumentos
 
-
-(define (wrap-lazy arguments body)
-  (foldr (λ (arg total-body)
-           (lazy arg total-body))  ; Envolver cada parámetro en un `lazy`
-         body  ; Caso base: el cuerpo
-         arguments))  ; Iterar sobre los argumentos
-
-
-(define (wrap-invokes-lazy fun args)
-  (foldl (λ (arg total-body)
-           (app total-body arg))  ; Las aplicaciones siguen siendo normales
-         fun  ; Caso base: la función misma
-         args))  ; Iterar sobre los argumentos
+(define (wrap-lazy-invokes fun args)
+  (foldl (λ (arg total-body) 
+           ; cada iteración aplica un argumento al resultado acumulado
+           (lazy total-body arg))
+         fun ; caso base: la función misma
+         args)) ; iteramos sobre los argumentos
 
 
 
@@ -261,13 +253,11 @@ Hola
     
     [(list 'rec-y (list x e) b)  (parse `(with ((,x (Y (fun (,x) ,e)))) ,b))]
     [(list 'fun args body) (wrap-funs args (parse body))]
-    [(list 'lazy args body) (wrap-lazy args (parse body))] 
     [(cons 'seqn exprs) (seqn (map parse exprs))]
     [(list 'iff c t f) (if-tf (parse c) (parse t) (parse f))] ;ESTE ES IGUAL AL PRIM OP ARGS EN CUANDO A ARGS
-    [(list 'lazy e) (lazy (parse e))]
+    ;[(list 'lazy e) (lazy (parse e))]
     [(list 'delay e) (delay (parse e))]   ; Añadir soporte para delay
     [(list 'force e) (force (parse e))]   ; Añadir soporte para force
-    [(list 'force-lazy e) (force-lazy (parse e))] 
     [(list fun args) (match args
                        [(? number?) (app (parse fun) (parse args))] ;para cuando nos topemos con (invoke my-fun 42)
                        ; si obviamos este caso obtendremos un error
@@ -281,15 +271,19 @@ Hola
                                              ; como son varios argumentos, parseamos todo con un args
                        )
      ]
-    [(list lazy args)  ; Caso para invocar funciones perezosas
- (match args
-   [(? number?) (app (parse lazy) (parse args))]
-   [(? boolean?) (app (parse lazy) (parse args))]
-   [(? symbol?) (app (parse lazy) (parse args))]
-   [(cons h t)
-    (if (symbol? (first args))
-        (app (parse lazy) (parse args))
-        (wrap-invokes-lazy (parse lazy) (map parse args)))])]
+    [(list 'lazy fun args) (match args
+                       [(? number?) (lazy (parse fun) (parse args))] ;para cuando nos topemos con (invoke my-fun 42)
+                       ; si obviamos este caso obtendremos un error
+                       ;   match: no matching clause for 2
+                       ; y asi para el otro tipo igual
+                       [(? boolean?) (lazy (parse fun) (parse args))]
+                       [(? symbol?) (lazy (parse fun) (parse args))]
+                       [(cons h t) (if (symbol? (first args))
+                                             (lazy (parse fun) (parse args)) ;caso un arg        
+                                             (wrap-lazy-invokes (parse fun) (map parse args)))] ; caso muchos args
+                                             ; como son varios argumentos, parseamos todo con un args
+                       )
+     ]
     [(cons op args) (cond
                   [(primitive? op) (prim op (map parse args))]
                   [(stl? op) (stl-op op (map parse args))])]
@@ -317,7 +311,7 @@ Hola
   (StringV s)
   (listV elems)
   (closureV arg body env); fun + env
-  (promV expr env cache) ; promise
+  (promiseV expr env cache) ; promise
   )
 
 
@@ -328,55 +322,34 @@ Hola
     [(num n) (valV n)]
     [(bool b) (valV b)]
     [(String s) (valV s)]
-    [(prim op args) (prim-ops op (map (λ (a) (interp a env)) args))]
+    [(prim op args)
+     (let* ([interpreted-args (map (λ (a) (interp a env)) args)]
+            [no-promise-args (map strict interpreted-args)])
+       (prim-ops op no-promise-args))]
     [(stl-op op args)
      (stl-ops op (map (λ (a) (interp a env)) args))
     ]
     [(id x) (env-lookup x env)]
     [(fun x b) (closureV x b env)]
-    
-    [(lazy param body) 
-     (promV (fun param body) env '())]
-    
     [(with x ne b)
      (interp b (extend-env x (interp ne env) env))]
     [(if-tf c t f) (if (valV-v (interp c env))
                          (interp t env)
                          (interp f env))]
-    [(force-lazy e)
-  (let ([prom (interp e env)])  ; Interpreta `e` para obtener una promesa
-    (if (promV? prom)
-        (let ([lazy-fun (interp (promV-expr prom) (promV-env prom))])
-          (match lazy-fun
-            [(closureV param body fenv)
-             (closureV param body fenv)]  ; Devuelve el cierre si no tiene argumentos
-            [else
-             (error "force-lazy: expected a closure")]))
-        (error "force-lazy: cannot force a non-promise")))]
-    
-    [(app f arg)
-  (let ([f-val (interp f env)])  ; Interpreta la función (puede ser closureV o promV)
-    (match f-val
-      [(closureV param body fenv)  ; Si es un cierre, aplica el argumento
-       (interp body (extend-env param (interp arg env) fenv))]
-      [(promV expr fenv cache)  ; Si es una promesa (caso `lazy`), fuerza y aplica
-       (let ([lazy-fun (interp (force-lazy expr) fenv)])  ; Fuerza la promesa
-         (match lazy-fun
-           [(closureV param body lfenv)
-            (interp body (extend-env param (interp arg env) lfenv))]  ; Aplica el argumento al cierre
-           [else
-            (error "Expected a closure in force-lazy evaluation")]))]
-      [else
-       (error "No se puede aplicar el valor a una función o promesa")]))]
-
-    
-    [(delay e) (promV e env '())]  ; Devuelve una promesa (perezosa) que se evaluará más tarde
+    [(app f e)
+     (def (closureV arg body fenv) (interp f env))
+     (interp body (extend-env arg (interp e env) fenv))
+     ]
+    ;[(lazy e) (promV e env #f)]
+    [(lazy f e)
+     (def (closureV arg body fenv) (strict (interp f env)))
+     (interp body (extend-env arg (promiseV e env (box #f)) fenv))]
+    [(delay e) (promiseV e env '())]  ; Devuelve una promesa (perezosa) que se evaluará más tarde|#
     [(force e) 
      (let ([prom (interp e env)])
-       (if (promV? prom)
-           (valV-v (interp (promV-expr prom) env))  ; Evalúa la expresión de la promesa si es una promesa
+       (if (promiseV? prom)
+           (valV-v (interp (promiseV-expr prom) env))  ; Evalúa la expresión de la promesa si es una promesa
            (error "Cannot force a non-promise")))]
-
     
     [(valV v) v] ; Manejo explícito para evitar duplicados de valV
     [(listV lst) (listV lst)]
@@ -390,6 +363,20 @@ Hola
            (interp expr env)))]  ; retorna el último valor
     )
   )
+
+(define (strict val)
+  (match val
+    [(promiseV e env cache)
+     (if (unbox cache) ; si el cache ya tiene un valor
+         (begin
+           (printf "Cache opened: ~a~n" (unbox cache))
+           (unbox cache)) ; devuelve el valor almacenado
+         (let ([evaluated (strict (interp e env))]) ; evalua la promesa
+           (begin
+             (set-box! cache evaluated) ; guarda el resultado en el cache
+             (printf "Cache registry: storing ~a~n" evaluated)
+             evaluated)))]
+    [_ val]))
 
 (define initial-env
   (extend-env 'Y (interp Y-expr empty-env) empty-env))
@@ -533,12 +520,12 @@ Hola
 (test (run '{str-reverse "hello"}) "olleh")
 
 ; Delay and Force Tests (PROBLEMA 3)
-(test (run '{delay {+ 1 2}}) (promV (prim '+ (list (num 1) (num 2))) initial-env '()))
+(test (run '{delay {+ 1 2}}) (promiseV (prim '+ (list (num 1) (num 2))) initial-env '()))
 (test (run '{force (delay {+ 1 2})}) 3)
-(test (run '{delay {+ 5 10}}) (promV (prim '+ (list (num 5) (num 10))) initial-env '()))
+(test (run '{delay {+ 5 10}}) (promiseV (prim '+ (list (num 5) (num 10))) initial-env '()))
 (test (run '{force (delay {+ 5 10})}) 15)
 (test (run '{force (delay {strApp "Hello" " World"})}) "Hello World")
-(test (run '{delay {== 5 5}}) (promV (prim '== (list (num 5) (num 5))) initial-env '()))
+(test (run '{delay {== 5 5}}) (promiseV (prim '== (list (num 5) (num 5))) initial-env '()))
 (test (run '{force (delay {== 5 5})}) #t)
 
 ; My-map and My-reject Tests (PROBLEMA 1)
@@ -559,9 +546,13 @@ Hola
 
 
 
-; Evaluacion perezosa con keyword lazy Tests (PROBLEMA 5)
-;(test (run '{lazy {+ 1 2}}) (promV (prim '+ (list (num 1) (num 2))) initial-env #f))
-;(test (run '{force {lazy {+ 1 (force {lazy {+ 2 3}})}}}) 6)
+; call by need con keyword lazy Tests (PROBLEMA 5)
+
+(test (run '{lazy {fun {x} {+ x x}} {- 15 5}}) 20)
+(test (run '{with [{f {fun {x} {+ x x}}}] {lazy f 10}}) 20)
+(test (run '{lazy {fun {a b} {+ a b}} {3 {+ 1 1}}}) 5)
+(test (run '{lazy {fun {a b c} {+ a {- b c}}} {3 2 1}}) 4)
+(test (run '{with [{f {fun {x y} {+ x y}}}] {lazy f {10 5}}})15)
 
 ; RECURSIVIDAD USANDO Y COMBINATOR Y LAMBDA CALCULO
 
@@ -599,7 +590,7 @@ Hola
   {power-base2 2}} ) 4)
 
 
-; TESTS WITH N
+; TESTS WITH Y FUN N
 
 (test (run '{with {{x 3} {y 4}} {+ x y}}) 7)
 (test (run '{with {{x 3} {y 4} {z 8} {w 9}} {+ x y z w}}) 24)
@@ -609,7 +600,3 @@ Hola
 (test (run '{{fun {a b c} {+ a {- b c}}} {10 9 8}}) 11)
 (test (run '{with {{f {fun {x y} {* x y}}}} {f {10 5}}}) 50)
 (test (run '{with {{add {fun {a b c} {+ a {+ b c}}}}} {+ {add {1 2 3}} {add {4 5 6}} {add {7 8 9}}}}) 45)
-
-; PROBLEMA 5
-(run '{lazy (x y) {+ x y}})
-(run '{force-lazy (lazy (x) {+ x 5})})
