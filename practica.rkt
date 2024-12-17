@@ -3,10 +3,10 @@
 #|
 bnf
 <expr> ::= <number?> | <boolean?> | <string?> | <symbol?>
-         | {+ <expr> <expr>}
-         | {- <expr> <expr>}
-         | {* <expr> <expr>}
-         | {/ <expr> <expr>}
+         | {+ <expr> ... <expr>}
+         | {- <expr> ... <expr>}
+         | {* <expr> ... <expr>}
+         | {/ <expr> ... <expr>}
          | {< <expr> <expr>}
          | {> <expr> <expr>}
          | {== <expr> <expr>}
@@ -16,13 +16,14 @@ bnf
          | {abs <expr>}
          | {expt <expr> <expr>}
          | {sqrt <expr>}
-         | {and <expr> <expr>} | {&& <expr> <expr>}
-         | {or <expr> <expr>} | {|| <expr> <expr>}
+         | {mod <expr> <expr>}
+         | {and <expr> ... <expr>} | {&& <expr> ... <expr>}
+         | {or <expr> ... <expr>} | {|| <expr> ... <expr>}
          | {not <expr>} | {! <expr>}
-         | {xor <expr> <expr>} | {!|| <expr> <expr>}
-         | {nand <expr> <expr>} | {~& <expr> <expr>} 
+         | {xor <expr> ... <expr>} | {!|| <expr> ... <expr>}
+         | {nand <expr> ... <expr>} | {~& <expr> ... <expr>} 
          | {equiv <expr> <expr>} | {<-> <expr> <expr>} 
-         | {strApp <expr> <expr>}
+         | {strApp <expr> ... <expr>}
          | {strAt <expr> <expr>}
          | {str=? <expr> <expr>}
          | {str-upper <expr>}
@@ -30,11 +31,22 @@ bnf
          | {str-len <expr>}
          | {str-substring <expr> <expr> <expr>}
          | {str-reverse <expr>}
-         | {with {<sym> <expr>} <expr>}
+         | {with {{<id> <expr>} ... {<id> <expr>}} <expr>}
          | {id <sym>}
-         | {fun {<id>} <expr>} ; definicion de funcion
-         | {<expr> <expr>}; aplicacion de funcion
-         | {if-tf <expr> <expr> <expr>}
+         | {fun {{<id>} ... {<id>} } <expr>} ; definicion de funcion
+         | {app <expr> {<expr> ...<expr>}} ;aplicacion de funcion
+         | {when <expr> <expr> <expr>} ;if
+         | {rec <id> <expr> <expr>}
+         | {list <expr>}
+         | {seqn <expr> ... <expr>}
+         | {head <expr>}
+         | {tail <expr>}
+         | {empty? <expr>}
+         | {my-map <expr> <expr>}
+         | {my-reject <expr> <expr>}
+         | {lazy <expr> {<expr> ...<expr>}}
+         | {delay <expr>}
+         | {force <expr>}
 |#
 
 
@@ -155,7 +167,8 @@ bnf
               ; construimos un `app` con un `fun` que toma el id
               (app (fun id total-body) (parse expr))]))
          (parse body) ; el caso base es el cuerpo parseado
-         vars)) ; iteramos sobre las variables
+   vars)
+) ; iteramos sobre las variables
 
 ; wrap-funs convierte una lista de parámetros en una función currificada
 ; usamos foldr porque la función más interna será la última de la lista,
@@ -170,7 +183,8 @@ bnf
            ; creamos un fun que toma el argumento actual y envuelve al resto
            (fun arg total-body))
          body ; caso base: el cuerpo
-         arguments)) ; iteramos sobre los argumentos
+         arguments)
+ ) ; iteramos sobre los argumentos
 
 ; wrap-invokes convierte múltiples argumentos en aplicaciones anidadas
 ; usamos foldr para aplicar los argumentos de derecha a izquierda, creando
@@ -185,14 +199,16 @@ bnf
            ; cada iteración aplica un argumento al resultado acumulado
            (app total-body arg))
          fun ; caso base: la función misma
-         args)) ; iteramos sobre los argumentos
+   args)
+) ; iteramos sobre los argumentos
 
 (define (wrap-lazy-invokes fun args)
   (foldl (λ (arg total-body) 
            ; cada iteración aplica un argumento al resultado acumulado
            (lazy total-body arg))
          fun ; caso base: la función misma
-         args)) ; iteramos sobre los argumentos
+         args)
+ ) ; iteramos sobre los argumentos
 
 
 
@@ -472,6 +488,7 @@ bnf
 (test (run '{abs 5}) 5)
 (test (run '{expt 2 3}) 8)
 (test (run '{sqrt 16}) 4)
+(test (run '{mod 8 2}) 0)
 
 ; Boolean primitives tests
 (test (run '{and #t #t}) #t)
