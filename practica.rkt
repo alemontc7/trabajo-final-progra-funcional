@@ -77,16 +77,16 @@ bnf
 
 (define boolean-primitives
   (list
-   (cons 'and (λ (a b) (and a b)))
-   (cons '&& (λ (a b) (and a b)))
-   (cons 'or (λ (a b) (or a b)))
-   (cons '|| (λ (a b) (or a b)))
+   (cons 'and (λ args (foldl (λ (bool total) (and total bool)) #t args)))
+   (cons '&& (λ args (foldl (λ (bool total) (and total bool)) #t args)))
+   (cons 'or (λ args (foldl (λ (bool total) (or total bool)) #f args)))
+   (cons '|| (λ args (foldl (λ (bool total) (or total bool)) #f args)))
    (cons 'not (λ (a) (not a)))
    (cons '! (λ (a) (not a)))
-   (cons 'xor (λ (a b) (xor a b)))
-   (cons '!|| (λ (a b) (xor a b)))
-   (cons 'nand (λ (a b) (not (and a b))))
-   (cons '~& (λ (a b) (not (and a b))))
+   (cons 'xor (λ args (foldl (λ (bool total) (xor total bool)) #f args)))
+   (cons '!|| (λ args (foldl (λ (bool total) (xor total bool)) #f args)))
+   (cons 'nand (λ args (foldl (λ (bool total) (not (and total bool))) #f args)))
+   (cons '~& (λ args (foldl (λ (bool total) (not (and total bool))) #f args)))
    (cons 'equiv (λ (a b) (equal? a b)))
    (cons '<-> (λ (a b) (equal? a b)))
    )
@@ -94,7 +94,7 @@ bnf
 
 (define stl-operations
   (list
-   (cons 'strApp string-append)
+   (cons 'strApp (λ args (apply string-append args)))
    (cons 'strAt (λ(string index) (string-ref string index)))
    (cons 'str=? string=?)
    (cons 'str-upper string-upcase)
