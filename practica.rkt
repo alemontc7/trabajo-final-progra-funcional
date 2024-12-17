@@ -122,16 +122,19 @@ bnf
    )
 )
 
-
+#|<env> ::= (mtEnv) | (aEnv <id> <val> <env>)|#
 (deftype Env
   (mtEnv)
   (aEnv id val env)
 )
 
+; empty-env -> (mtEnv)
 (define empty-env (mtEnv))
 
+; extend-env:: <id> <val> <env> -> <env>
 (define extend-env aEnv)
 
+; env-lookup :: <id> <env> -> <val>
 (define (env-lookup x env)
   (match env
     [(mtEnv) (error "free identifier")]
@@ -142,29 +145,32 @@ bnf
   )
 
 
+;<primitive> ::= <numeric-primitive> | <boolean-primitive> -> (<symbol> . <procedure>) | #f
 (define (primitive? op)
   (or (assoc op numeric-primitives) (assoc op boolean-primitives))
 )
 
+;<stl> ::= <stl-operation> -> (<symbol> . <procedure>) | #f
 (define (stl? op)
   (or (assoc op stl-operations) #f)
 )
 
 
-; wrap-withs procesa un bloque `with` con múltiples variables
+; wrap-withs procesa un bloque with con múltiples variables
 ; usamos foldr para ir de derecha a izquierda, anidando cada variable 
-; como un `fun` que envuelve al cuerpo. 
+; como un fun que envuelve al cuerpo. 
 ; ejemplo:
 ; (wrap-withs '((x 1) (y 2)) '(+ x y))
 ; resultado:
 ; (app (fun 'x (app (fun 'y '(+ x y)) (parse 2))) (parse 1))
 
+;<wrap-withs> ::= (<id> <expr>) ... <expr> -> <app>
 (define (wrap-withs vars body)
   (foldr (λ (var total-body)
            ; aquí match nos ayuda a manejar el formato (id expr)
            (match var
              [(list id expr) 
-              ; construimos un `app` con un `fun` que toma el id
+              ; construimos un app con un fun que toma el id
               (app (fun id total-body) (parse expr))]))
          (parse body) ; el caso base es el cuerpo parseado
    vars)
@@ -178,6 +184,7 @@ bnf
 ; resultado:
 ; (fun 'x (fun 'y (fun 'z '(+ x y z))))
 
+;<wrap-funs> ::= (<id> ... <id>) <expr> -> <fun>
 (define (wrap-funs arguments body)
   (foldr (λ (arg total-body) 
            ; creamos un fun que toma el argumento actual y envuelve al resto
@@ -194,6 +201,7 @@ bnf
 ; resultado:
 ; (app (app (app 'f 1) 2) 3)
 
+;<wrap-invokes> ::= <fun> (<expr> ... <expr>) -> <app>
 (define (wrap-invokes fun args)
   (foldl (λ (arg total-body) 
            ; cada iteración aplica un argumento al resultado acumulado
@@ -202,6 +210,7 @@ bnf
    args)
 ) ; iteramos sobre los argumentos
 
+;<wrap-lazy-invokes> ::= <fun> (<expr> ... <expr>) -> <lazy>
 (define (wrap-lazy-invokes fun args)
   (foldl (λ (arg total-body) 
            ; cada iteración aplica un argumento al resultado acumulado
@@ -267,11 +276,8 @@ bnf
     ]
     )
   )
-#|
 
-
-|#
-
+;<Y-expr> -> <expr>
 (define Y-expr
   (parse '{fun {f} 
             {with [{h {fun {g} {fun {n} {{f {g g}} n}}}}] 
@@ -290,7 +296,6 @@ bnf
 
 
 ; interp :: Expr Fundefs Env -> Valor
-; evaluates an arithmetic expression
 (define (interp expr env)
   (match expr
     [(num n) (valV n)]
@@ -350,6 +355,7 @@ bnf
     )
   )
 
+;<strict> ::= <val> -> <valV> | <boolV> | <StringV> | <listV> | <closureV>
 (define (strict val)
   (match val
     [(promiseV e env cache)
@@ -364,18 +370,19 @@ bnf
              evaluated)))]
     [_ val]))
 
+;<initial-env> -> <env>
 (define initial-env
   (extend-env 'Y (interp Y-expr empty-env) empty-env))
 
 
+;<prim-ops> ::= <op> <args> -> <valV>
 
 (define (prim-ops op args) 
-       ; Caso general para otras primitivas
       (let ([vals (map (λ (val)
                          (cond
-                           [(valV? val) (valV-v val)] ; Si es valV, desempaqueta
-                           [(closureV? val) val]      ; Si es closureV, lo deja igual
-                           [else val]))               ; Caso base, pasa el valor como está
+                           [(valV? val) (valV-v val)]
+                           [(closureV? val) val]
+                           [else val]))
                        args)])
         (match op 
           [(? (λ (o) (assoc o numeric-primitives)))
@@ -384,35 +391,30 @@ bnf
            (valV (apply (cdr (assq op boolean-primitives)) vals))])))
 
 
-
+;<stl-ops> ::= <op> <args> -> <valV> | <listV> | <error>
 (define (stl-ops op args)
   (match op
-    ; Caso específico para my-map
     ['my-map
-     (let ([f (car args)]   ; Primer argumento: función (closureV)
-           [lst (cadr args)]) ; Segundo argumento: lista (listV)
-       (if (and (closureV? f) (listV? lst)) ; si ambos son elementos válidos...
-           ; mapeamos la función sobre los elementos de la lista
+     (let ([f (car args)] 
+           [lst (cadr args)])
+       (if (and (closureV? f) (listV? lst)) 
            (listV (map (λ (elem)
-                         ; Interpretamos el cierre con cada elemento
                          (valV-v (interp (app f (valV elem)) (closureV-env f)))) ; interpretamos la expr resultante
                        ; de la aplicación de f con elem en el contexto del env del closure de ese f
                        (listV-elems lst)))
            (error "my-map requires a function and a list")))] ; si no nos dan una fun y una lst, error nomás
 
-    ; Caso específico para my-reject
+    ; caso específico para my-reject
     ['my-reject
-     (let ([f (car args)]   ; Primer argumento: función (closureV)
-           [lst (cadr args)]) ; Segundo argumento: lista (listV)
+     (let ([f (car args)] 
+           [lst (cadr args)]) 
        (if (and (closureV? f) (listV? lst))
-           ; Filtrar los elementos que NO cumplen la condición
            (listV (filter (λ (elem)
                                         (not (valV-v (interp (app f (valV elem)) (closureV-env f))))) ; interpretamos
                                       (listV-elems lst)))
            (error "my-reject requires a function and a list")))]
 
-    ; Caso específico para car
-    ;['car]
+    ; caso específico para car
     ['head
      (let ([lst (car args)]) ; sacamos la lst 
        (if (listV? lst) ; check si es un val listV
@@ -440,24 +442,24 @@ bnf
                #f) ; no vacía
        (error "empty: requires a listV")))
      ]
-    ; Caso general para operaciones del STL
+    ; caso general para operaciones del STL
     [_
      (let ([vals (map (λ (val)
                         (cond
-                          [(valV? val) (valV-v val)] ; Si es valV, desempaqueta
-                          [else val]))               ; Caso base, pasa el valor como está
+                          [(valV? val) (valV-v val)] 
+                          [else val]))           
                       args)]
-           [func (assoc op stl-operations)]) ; Busca en las operaciones del STL
+           [func (assoc op stl-operations)])
        (if func
-           (valV (apply (cdr func) vals)) ; Aplica la operación genérica
+           (valV (apply (cdr func) vals))
            (error "Unknown STL operation")))
      ]
     )
-  ) ; Si no es reconocida, error
+  )
 
 
 
-; run: Src list[Fundefs]? -> Val
+;<run> ::= <Src> -> <Val>
 (define (run prog)
   (let ([res (interp (parse prog) initial-env)])
     (match res
@@ -475,8 +477,12 @@ bnf
 ; Numeric Primitives Tests
 
 (test (run '{+ 1 2}) 3)
+(test (run '{+ 1 2 3 4 5 6 7 8 8 9}) 53)
+(test (run '{- 20 10 5}) 5)
 (test (run '{- 10 5}) 5)
 (test (run '{* 4 3}) 12)
+(test (run '{* 2 3 4}) 24)
+(test (run '{/ 100 2 5}) 10)
 (test (run '{/ 10 2}) 5)
 (test (run '{< 3 5}) #t)
 (test (run '{> 7 2}) #t)
@@ -512,7 +518,6 @@ bnf
 
 ; When sentence (if) tests
 
-(test (run '{when {== 5 5} {+ 1 1} {+ 2 2}}) 2)
 (test (run '{when {== 5 5} {+ 1 1} {+ 2 2}}) 2)
 (test (run '{when {!= 5 5} {+ 1 1} {+ 2 2}}) 4)
 (test (run '{when {and #t #t} {+ 10 10 10} {- 20 5}}) 30)
@@ -642,8 +647,3 @@ bnf
 (test (run '{lazy {fun {a b} {+ a b}} {3 {+ 1 1}}}) 5)
 (test (run '{lazy {fun {a b c} {+ a {- b c}}} {3 2 1}}) 4)
 (test (run '{with [{f {fun {x y} {+ x y}}}] {lazy f {10 5}}})15)
-
-
-
-
-
